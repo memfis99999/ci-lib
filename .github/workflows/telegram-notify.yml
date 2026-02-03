@@ -1,0 +1,66 @@
+name: Telegram Notifier
+
+on:
+  workflow_call:
+    inputs:
+      message:
+        required: true
+        type: string
+    secrets:
+      TELEGRAM_TOKEN:
+        required: true
+      TELEGRAM_CHAT_ID:
+        required: true
+      TELEGRAM_TOPIC_ID:
+        required: false
+
+jobs:
+  send-message:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Parse config (Unified Logic)
+        id: check_status
+        run: |
+          FILE=".github/telegram-enabled.txt"
+          ENABLED="false"
+
+          if [ -f "$FILE" ]; then
+            # Логика парсинга:
+            # 1. grep -v '^#' -> исключаем строки-комментарии
+            # 2. grep -v '^[[:space:]]*$' -> исключаем пустые строки (или строки только из пробелов)
+            # 3. head -n 1 -> берем только первую найденную строку
+            # 4. xargs -> триммим пробелы по краям
+            RAW_VALUE=$(grep -v '^#' "$FILE" | grep -v '^[[:space:]]*$' | head -n 1 | xargs)
+            
+            # Переводим в нижний регистр для унификации сравнения
+            VALUE=$(echo "$RAW_VALUE" | tr '[:upper:]' '[:lower:]')
+            
+            if [[ "$VALUE" == "1" || "$VALUE" == "true" || "$VALUE" == "on" ]]; then
+              ENABLED="true"
+            fi
+          fi
+
+          echo "is_enabled=$ENABLED" >> $GITHUB_OUTPUT
+
+      - name: Send Telegram Message
+        # Сообщение отправляется только если парсер вернул true
+        if: steps.check_status.outputs.is_enabled == 'true'
+        run: |
+          # Используем jq для безопасного экранирования текста сообщения
+          MSG_TEXT=$(echo "${{ inputs.message }}" | jq -aRs .)
+          TOPIC_ID="${{ secrets.TELEGRAM_TOPIC_ID }}"
+          URL="https://api.telegram.org/bot${{ secrets.TELEGRAM_TOKEN }}/sendMessage"
+          
+          if [ -z "$TOPIC_ID" ]; then
+            curl -s -X POST "$URL" \
+              -H "Content-Type: application/json" \
+              -d "{\"chat_id\": \"${{ secrets.TELEGRAM_CHAT_ID }}\", \"text\": $MSG_TEXT, \"parse_mode\": \"HTML\"}"
+          else
+            curl -s -X POST "$URL" \
+              -H "Content-Type: application/json" \
+              -d "{\"chat_id\": \"${{ secrets.TELEGRAM_CHAT_ID }}\", \"message_thread_id\": \"$TOPIC_ID\", \"text\": $MSG_TEXT, \"parse_mode\": \"HTML\"}"
+          fi
+
