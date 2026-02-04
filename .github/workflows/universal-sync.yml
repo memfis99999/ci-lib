@@ -74,31 +74,25 @@ jobs:
       # Формируем строку сообщения (только если были изменения или если всё упало)
       - name: Prepare Message
         id: msg
-        # Запускаем, если были изменения ИЛИ если какой-то из предыдущих шагов упал
         if: always() && (steps.sync.outputs.changes == 'true' || failure())
         run: |
-          # Определяем итоговый статус для текста
-          # Если job.status не success, значит была ошибка
-          FINAL_STATUS="${{ job.status == 'success' && steps.sync.outputs.status || '❌ ERROR' }}"
-          
+          STATUS="${{ job.status == 'success' && steps.sync.outputs.status || '❌ ERROR' }}"
           {
             echo 'text<<EOF'
             echo "<b>Repo:</b> ${{ github.repository }}"
             echo "<b>Branch:</b> ${{ inputs.target_branch }}"
-            echo "<b>Result:</b> $FINAL_STATUS"
-            if [ "${{ steps.sync.outputs.changes }}" == "true" ]; then
-              echo "<b>Upstream:</b> ${{ steps.sync.outputs.hash }}"
-            fi
+            echo "<b>Result:</b> $STATUS"
+            [ "${{ steps.sync.outputs.changes }}" == "true" ] && echo "<b>Upstream:</b> ${{ steps.sync.outputs.hash }}"
             echo "<b>Run:</b> ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
             echo 'EOF'
           } >> $GITHUB_OUTPUT
 
-      # Вызов нотификатора
-      - name: Call Notifier
-        # Проверка telegram-enabled.txt вшита внутри telegram-notify.yml
+      - name: Call Notifier Action
         if: always() && (steps.sync.outputs.changes == 'true' || failure())
-        uses: ./.github/workflows/telegram-notify.yml
+        # Вызываем как локальный Action (так как они в одном репозитории ci-lib)
+        uses: ./.github/actions/telegram-notifier
         with:
           message: ${{ steps.msg.outputs.text }}
-        secrets: inherit
-        
+          telegram_token: ${{ secrets.TELEGRAM_TOKEN }}
+          telegram_chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
+          telegram_topic_id: ${{ secrets.TELEGRAM_TOPIC_ID }}
