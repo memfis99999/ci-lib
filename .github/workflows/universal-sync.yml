@@ -1,0 +1,104 @@
+name: Universal Git Sync
+
+on:
+  workflow_call:
+    inputs:
+      upstream_url:
+        required: true
+        type: string
+      upstream_branch:
+        required: false
+        type: string
+        default: "master"
+      mirror_branch:
+        required: false
+        type: string
+        default: "upstream-mirror"
+      target_branch:
+        required: false
+        type: string
+        default: "master"
+    secrets:
+      TELEGRAM_TOKEN:
+        required: true
+      TELEGRAM_CHAT_ID:
+        required: true
+      TELEGRAM_TOPIC_ID:
+        required: false
+
+jobs:
+  maintenance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Git Setup
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git remote add upstream ${{ inputs.upstream_url }}
+          git fetch upstream ${{ inputs.upstream_branch }}
+
+      - name: Process Sync
+        id: sync
+        run: |
+          UPSTREAM_HASH=$(git rev-parse upstream/${{ inputs.upstream_branch }})
+          LOCAL_HASH=$(git rev-parse origin/${{ inputs.mirror_branch }} 2>/dev/null || echo "none")
+          
+          if [ "$UPSTREAM_HASH" == "$LOCAL_HASH" ]; then
+            echo "status=NO_CHANGES" >> $GITHUB_OUTPUT
+            echo "changes=false" >> $GITHUB_OUTPUT
+          else
+            # Синхронизируем зеркало
+            git checkout ${{ inputs.mirror_branch }} || git checkout -b ${{ inputs.mirror_branch }}
+            git reset --hard upstream/${{ inputs.upstream_branch }}
+            git push origin ${{ inputs.mirror_branch }} --force
+            
+            # Пытаемся мержить в основную ветку, если есть флаг
+            MERGE_RESULT="SKIPPED"
+            FILE=".github/auto-update-default.txt"
+            if [ -f "$FILE" ] && [[ $(cat "$FILE" | xargs | tr '[:upper:]' '[:lower:]') =~ ^(true|1|on)$ ]]; then
+               git checkout ${{ inputs.target_branch }}
+               git merge origin/${{ inputs.mirror_branch }} --no-edit && git push origin ${{ inputs.target_branch }}
+               MERGE_RESULT="UPDATED"
+            fi
+            
+            echo "status=$MERGE_RESULT" >> $GITHUB_OUTPUT
+            echo "changes=true" >> $GITHUB_OUTPUT
+            echo "hash=$(git rev-parse --short upstream/${{ inputs.upstream_branch }})" >> $GITHUB_OUTPUT
+          fi
+
+      # Формируем строку сообщения (только если были изменения или если всё упало)
+      - name: Prepare Message
+        id: msg
+        # Запускаем, если были изменения ИЛИ если какой-то из предыдущих шагов упал
+        if: always() && (steps.sync.outputs.changes == 'true' || failure())
+        run: |
+          # Определяем итоговый статус для текста
+          # Если job.status не success, значит была ошибка
+          FINAL_STATUS="${{ job.status == 'success' && steps.sync.outputs.status || '❌ ERROR' }}"
+          
+          {
+            echo 'text<<EOF'
+            echo "<b>Repo:</b> ${{ github.repository }}"
+            echo "<b>Branch:</b> ${{ inputs.target_branch }}"
+            echo "<b>Result:</b> $FINAL_STATUS"
+            if [ "${{ steps.sync.outputs.changes }}" == "true" ]; then
+              echo "<b>Upstream:</b> ${{ steps.sync.outputs.hash }}"
+            fi
+            echo "<b>Run:</b> ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+            echo 'EOF'
+          } >> $GITHUB_OUTPUT
+
+      # Вызов нотификатора
+      - name: Call Notifier
+        # Проверка telegram-enabled.txt вшита внутри telegram-notify.yml
+        if: always() && (steps.sync.outputs.changes == 'true' || failure())
+        uses: ./.github/workflows/telegram-notify.yml
+        with:
+          message: ${{ steps.msg.outputs.text }}
+        secrets: inherit
+        
