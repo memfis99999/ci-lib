@@ -1,0 +1,48 @@
+name: 'Telegram Notifier Action'
+description: 'Sends message if enabled in config'
+inputs:
+  message:
+    description: 'Text to send'
+    required: true
+  telegram_token:
+    description: 'Bot token'
+    required: true
+  telegram_chat_id:
+    description: 'Chat ID'
+    required: true
+  telegram_topic_id:
+    description: 'Topic ID (optional)'
+    required: false
+
+runs:
+  using: "composite"
+  steps:
+    - name: Check if notification is enabled
+      id: check_status
+      shell: bash
+      run: |
+        FILE=".github/telegram-enabled.txt"
+        ENABLED="false"
+        if [ -f "$FILE" ]; then
+          VALUE=$(cat "$FILE" | tr '[:upper:]' '[:lower:]' | xargs)
+          if [[ "$VALUE" == "1" || "$VALUE" == "true" || "$VALUE" == "on" ]]; then
+            ENABLED="true"
+          fi
+        fi
+        echo "is_enabled=$ENABLED" >> $GITHUB_OUTPUT
+
+    - name: Send Message
+      if: steps.check_status.outputs.is_enabled == 'true'
+      shell: bash
+      run: |
+        MSG_TEXT=$(echo "${{ inputs.message }}" | jq -aRs .)
+        URL="https://api.telegram.org/bot${{ inputs.telegram_token }}/sendMessage"
+        TOPIC_ID="${{ inputs.telegram_topic_id }}"
+        
+        if [ -z "$TOPIC_ID" ]; then
+          curl -s -X POST "$URL" -H "Content-Type: application/json" \
+            -d "{\"chat_id\": \"${{ inputs.telegram_chat_id }}\", \"text\": $MSG_TEXT, \"parse_mode\": \"HTML\"}"
+        else
+          curl -s -X POST "$URL" -H "Content-Type: application/json" \
+            -d "{\"chat_id\": \"${{ inputs.telegram_chat_id }}\", \"message_thread_id\": \"$TOPIC_ID\", \"text\": $MSG_TEXT, \"parse_mode\": \"HTML\"}"
+        fi
