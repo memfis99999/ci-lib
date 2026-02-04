@@ -90,7 +90,7 @@ jobs:
       - name: Call Notifier Action
         if: always() && (steps.sync.outputs.changes == 'true' || failure())
         # Вызываем как локальный Action (так как они в одном репозитории ci-lib)
-        uses: ./.github/actions/telegram-notifier
+        uses: memfis99999/ci-lib/.github/actions/telegram-notifier@master
         with:
           message: ${{ steps.msg.outputs.text }}
           telegram_token: ${{ secrets.TELEGRAM_TOKEN }}
