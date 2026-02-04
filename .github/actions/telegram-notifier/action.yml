@@ -22,7 +22,7 @@ runs:
       shell: bash
       run: |
         FILE=".github/telegram-enabled.txt"
-        ENABLED="false"
+        ENABLED="true" #"false"
         if [ -f "$FILE" ]; then
           VALUE=$(cat "$FILE" | tr '[:upper:]' '[:lower:]' | xargs)
           if [[ "$VALUE" == "1" || "$VALUE" == "true" || "$VALUE" == "on" ]]; then
