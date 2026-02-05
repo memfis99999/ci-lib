@@ -1,106 +1,51 @@
-name: Universal Git Sync
+name: Universal Git Sync (Config-Driven)
 
 on:
   workflow_call:
     inputs:
-      upstream_url:
-        required: true
-        type: string
-      upstream_branch:
-        required: false
-        type: string
-        default: "master"
-      mirror_branch:
-        required: false
-        type: string
-        default: "upstream-mirror"
-      target_branch:
-        required: false
-        type: string
-        default: "master"
-      force_notify:
-        description: 'Force telegram notification'
-        required: false
-        type: boolean
-        default: false
+      force_notify: { required: false, type: boolean, default: false }
     secrets:
-      TELEGRAM_TOKEN:
-        required: true
-      TELEGRAM_CHAT_ID:
-        required: true
-      TELEGRAM_TOPIC_ID:
-        required: false
-
+      TELEGRAM_TOKEN: { required: true }
+      TELEGRAM_CHAT_ID: { required: true }
+      TELEGRAM_TOPIC_ID: { required: false }
+      
 jobs:
   maintenance:
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout
+      - name: Checkout Target Repo
         uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
+        with: { fetch-depth: 0 }
 
-      - name: Git Setup
+      - name: Checkout CI Library
+        uses: actions/checkout@v4
+        with: { repository: memfis99999/ci-lib, path: .ci-lib-temp }
+
+      - name: Git Config
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote add upstream ${{ inputs.upstream_url }} 2>/dev/null || git remote set-url upstream ${{ inputs.upstream_url }}
-          git fetch upstream ${{ inputs.upstream_branch }} --tags --prune
 
-      - name: Process Sync
+      - name: Sync Mirror
         id: sync
         run: |
-          UPSTREAM_HASH=$(git rev-parse upstream/${{ inputs.upstream_branch }})
-          LOCAL_HASH=$(git rev-parse origin/${{ inputs.mirror_branch }} 2>/dev/null || echo "none")
-          
-          if [ "$UPSTREAM_HASH" == "$LOCAL_HASH" ]; then
-            echo "status=NO_CHANGES" >> $GITHUB_OUTPUT
-            echo "changes=false" >> $GITHUB_OUTPUT
-          else
-            # Синхронизируем зеркало
-            git checkout ${{ inputs.mirror_branch }} || git checkout -b ${{ inputs.mirror_branch }}
-            git reset --hard upstream/${{ inputs.upstream_branch }}
-            git push origin ${{ inputs.mirror_branch }} --force
-            
-            # Пытаемся мержить в основную ветку, если есть флаг
-            MERGE_RESULT="SKIPPED"
-            FILE=".github/auto-update-default.txt"
-            if [ -f "$FILE" ] && [[ $(cat "$FILE" | xargs | tr '[:upper:]' '[:lower:]') =~ ^(true|1|on)$ ]]; then
-               git checkout ${{ inputs.target_branch }}
-               git merge origin/${{ inputs.mirror_branch }} --no-edit && git push origin ${{ inputs.target_branch }}
-               MERGE_RESULT="UPDATED"
-            fi
-            
-            echo "status=$MERGE_RESULT" >> $GITHUB_OUTPUT
-            echo "changes=true" >> $GITHUB_OUTPUT
-            echo "hash=$(git rev-parse --short upstream/${{ inputs.upstream_branch }})" >> $GITHUB_OUTPUT
-          fi
+          # Вызов без аргументов — всё возьмет из .github/sync/
+          OUTPUT=$(bash .ci-lib-temp/scripts/sync-mirror.sh)
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
 
-      # Формируем строку сообщения (только если были изменения или если всё упало)
-      - name: Prepare Message
-        id: msg
-        if: always() && (steps.sync.outputs.changes == 'true' || failure())
+      - name: Merge Target
+        id: merge
+        if: steps.sync.outputs.changed == 'true'
         run: |
-          STATUS="${{ job.status == 'success' && steps.sync.outputs.status || '❌ ERROR' }}"
-          {
-            echo 'text<<EOF'
-            echo "<b>Repo:</b> ${{ github.repository }}"
-            echo "<b>Branch:</b> ${{ inputs.target_branch }}"
-            echo "<b>Result:</b> $STATUS"
-            [ "${{ steps.sync.outputs.changes }}" == "true" ] && echo "<b>Upstream:</b> ${{ steps.sync.outputs.hash }}"
-            echo "<b>Run:</b> ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
-            echo 'EOF'
-          } >> $GITHUB_OUTPUT
+          # Вызов без аргументов
+          OUTPUT=$(bash .ci-lib-temp/scripts/merge-target.sh)
+          echo "$OUTPUT" >> $GITHUB_OUTPUT
 
-      - name: Call Notifier Action
-        if: always() && (steps.sync.outputs.changes == 'true' || failure())
-        # Вызываем как локальный Action (так как они в одном репозитории ci-lib)
-        uses: memfis99999/ci-lib/.github/actions/telegram-notifier@master
-        with:
-          message: ${{ steps.msg.outputs.text }}
-          telegram_token: ${{ secrets.TELEGRAM_TOKEN }}
-          telegram_chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
-          telegram_topic_id: ${{ secrets.TELEGRAM_TOPIC_ID }}
-          config_branch: ${{ inputs.target_branch }}
-          # Передаем наш флаг
-          force_send: ${{ inputs.force_notify }}
+      - name: Prepare & Send Notify
+        if: always() && (steps.sync.outputs.changed == 'true' || failure())
+        run: |
+          STATUS="${{ job.status == 'success' && (steps.merge.outputs.merge_result || 'MIRROR_ONLY') || '❌ ERROR' }}"
+          # Формируем сообщение (скрипт сам найдет Repo и Branch)
+          MSG=$(bash .ci-lib-temp/scripts/gen-message.sh "${{ github.repository }}" "" "$STATUS" "${{ steps.sync.outputs.hash }}" "${{ github.run_id }}")
+          # Отправляем
+          bash .ci-lib-temp/scripts/tg-notify.sh "$MSG" "${{ secrets.TELEGRAM_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}" "${{ secrets.TELEGRAM_TOPIC_ID }}" "${{ inputs.force_notify }}"
