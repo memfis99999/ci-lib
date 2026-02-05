@@ -2,17 +2,21 @@ name: 'Telegram Notifier Action'
 description: 'Sends message if enabled in config'
 inputs:
   message:
-    description: 'Text to send'
     required: true
   telegram_token:
-    description: 'Bot token'
     required: true
   telegram_chat_id:
-    description: 'Chat ID'
     required: true
   telegram_topic_id:
-    description: 'Topic ID (optional)'
     required: false
+  config_branch:
+    required: false
+    default: 'master'
+  # Новый флаг принудительной отправки
+  force_send:
+    description: 'Bypass config check and send message anyway'
+    required: false
+    default: 'false'
 
 runs:
   using: "composite"
@@ -21,14 +25,23 @@ runs:
       id: check_status
       shell: bash
       run: |
-        FILE=".github/telegram-enabled.txt"
-        ENABLED="true" #"false"
-        if [ -f "$FILE" ]; then
-          VALUE=$(cat "$FILE" | tr '[:upper:]' '[:lower:]' | xargs)
-          if [[ "$VALUE" == "1" || "$VALUE" == "true" || "$VALUE" == "on" ]]; then
-            ENABLED="true"
+        ENABLED="false"
+
+        # Если включен форсированный режим - сразу ставим true
+        if [[ "${{ inputs.force_send }}" == "true" ]]; then
+          echo "Force send enabled. Ignoring config file."
+          ENABLED="true"
+        else
+          # Иначе проверяем файл в указанной ветке
+          CONTENT=$(git show origin/${{ inputs.config_branch }}:.github/telegram-enabled.txt 2>/dev/null || echo "")
+          if [ -n "$CONTENT" ]; then
+            VALUE=$(echo "$CONTENT" | grep -v '^#' | grep -v '^[[:space:]]*$' | head -n 1 | xargs | tr '[:upper:]' '[:lower:]')
+            if [[ "$VALUE" == "1" || "$VALUE" == "true" || "$VALUE" == "on" ]]; then
+              ENABLED="true"
+            fi
           fi
         fi
+        
         echo "is_enabled=$ENABLED" >> $GITHUB_OUTPUT
 
     - name: Send Message
