@@ -18,6 +18,11 @@ on:
         required: false
         type: string
         default: "master"
+      force_notify:
+        description: 'Force telegram notification'
+        required: false
+        type: boolean
+        default: false
     secrets:
       TELEGRAM_TOKEN:
         required: true
@@ -96,3 +101,6 @@ jobs:
           telegram_token: ${{ secrets.TELEGRAM_TOKEN }}
           telegram_chat_id: ${{ secrets.TELEGRAM_CHAT_ID }}
           telegram_topic_id: ${{ secrets.TELEGRAM_TOPIC_ID }}
+          config_branch: ${{ inputs.target_branch }}
+          # Передаем наш флаг
+          force_send: ${{ inputs.force_notify }}
