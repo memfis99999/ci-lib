@@ -1,13 +1,8 @@
 #!/bin/bash
-# Приоритет: Аргумент -> Файл -> Дефолт
-URL=${1:-$(cat .github/sync/upstream-url.txt 2>/dev/null)}
-UP_BR=${2:-$(cat .github/sync/upstream-branch.txt 2>/dev/null || echo "master")}
-MIR_BR=${3:-$(cat .github/sync/mirror-branch.txt 2>/dev/null || echo "upstream-mirror")}
-
-if [ -z "$URL" ]; then
-    echo "❌ Error: Upstream URL not found in args or .github/sync/upstream-url.txt"
-    exit 1
-fi
+CONF_DIR=".github/sync"
+URL=${1:-$(cat $CONF_DIR/upstream-url.txt 2>/dev/null)}
+UP_BR=${2:-$(cat $CONF_DIR/upstream-branch.txt 2>/dev/null || echo "master")}
+MIR_BR=${3:-$(cat $CONF_DIR/mirror-branch.txt 2>/dev/null || echo "upstream-mirror")}
 
 git remote add upstream "$URL" 2>/dev/null || git remote set-url upstream "$URL"
 git fetch upstream "$UP_BR" --tags --prune
