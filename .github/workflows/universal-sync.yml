@@ -44,8 +44,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git remote add upstream ${{ inputs.upstream_url }}
-          git fetch upstream ${{ inputs.upstream_branch }}
+          git remote add upstream ${{ inputs.upstream_url }} 2>/dev/null || git remote set-url upstream ${{ inputs.upstream_url }}
+          git fetch upstream ${{ inputs.upstream_branch }} --tags --prune
 
       - name: Process Sync
         id: sync
