@@ -29,7 +29,6 @@ jobs:
       - name: Sync Mirror
         id: sync
         run: |
-          # Вызов без аргументов — всё возьмет из .github/sync/
           OUTPUT=$(bash .ci-lib-temp/scripts/sync-mirror.sh)
           echo "$OUTPUT" >> $GITHUB_OUTPUT
 
@@ -37,15 +36,13 @@ jobs:
         id: merge
         if: steps.sync.outputs.changed == 'true'
         run: |
-          # Вызов без аргументов
           OUTPUT=$(bash .ci-lib-temp/scripts/merge-target.sh)
           echo "$OUTPUT" >> $GITHUB_OUTPUT
 
-      - name: Prepare & Send Notify
+      - name: Format & Notify
         if: always() && (steps.sync.outputs.changed == 'true' || failure())
         run: |
           STATUS="${{ job.status == 'success' && (steps.merge.outputs.merge_result || 'MIRROR_ONLY') || '❌ ERROR' }}"
-          # Формируем сообщение (скрипт сам найдет Repo и Branch)
           MSG=$(bash .ci-lib-temp/scripts/gen-message.sh "${{ github.repository }}" "" "$STATUS" "${{ steps.sync.outputs.hash }}" "${{ github.run_id }}")
-          # Отправляем
-          bash .ci-lib-temp/scripts/tg-notify.sh "$MSG" "${{ secrets.TELEGRAM_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}" "${{ secrets.TELEGRAM_TOPIC_ID }}" "${{ inputs.force_notify }}"
+          bash .ci-lib-temp/scripts/notify.sh "$MSG" "${{ secrets.TELEGRAM_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}" "${{ secrets.TELEGRAM_TOPIC_ID }}" "${{ inputs.force_notify }}"
+          
