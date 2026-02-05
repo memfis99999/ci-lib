@@ -1,11 +1,12 @@
 #!/bin/bash
-# params: MIRROR_NAME, TARGET_NAME
-MIR_BR=$1; TGT_BR=$2
+# Приоритет: Аргумент -> Файл -> Дефолт
+MIR_BR=${1:-$(cat .github/sync/mirror-branch.txt 2>/dev/null || echo "upstream-mirror")}
+TGT_BR=${2:-$(cat .github/sync/target-branch.txt 2>/dev/null || echo "master")}
 
 CAN_MERGE=false
 FILE=".github/auto-update-default.txt"
 if [ -f "$FILE" ]; then
-    VAL=$(grep -v '^#' "$FILE" | grep -v '^[[:space:]]*$' | head -n 1 | xargs | tr '[:upper:]' '[:lower:]')
+    VAL=$(grep -v '^#' "$FILE" | xargs | tr '[:upper:]' '[:lower:]')
     [[ "$VAL" =~ ^(true|1|on)$ ]] && CAN_MERGE=true
 fi
 
