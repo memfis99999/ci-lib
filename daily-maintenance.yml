@@ -4,7 +4,7 @@ on:
   # Запуск по расписанию (каждый день в 4:00 утра по UTC)
   schedule:
     - cron: '0 4 * * *'
-  
+
   # Возможность ручного запуска из интерфейса GitHub
   workflow_dispatch:
     inputs:
@@ -24,5 +24,5 @@ jobs:
     uses: memfis99999/ci-lib/.github/workflows/universal-sync.yml@master
     with:
       # Если запустили вручную — форсируем уведомление, иначе — по конфигу
-      force_notify: ${{ github.event.inputs.force_notify || false }}
+      force_notify: ${{ github.event.inputs.force_notify == 'true' }}
     secrets: inherit
