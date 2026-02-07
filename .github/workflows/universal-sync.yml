@@ -18,4 +18,4 @@
     STATUS="${{ job.status == 'success' && (steps.merge.outputs.merge_result || 'MIRROR_ONLY') || '❌ ERROR' }}"
     # Передаем список файлов шестым параметром
     MSG=$(bash .ci-lib-temp/scripts/gen-message.sh "${{ github.repository }}" "" "$STATUS" "${{ steps.sync.outputs.hash }}" "${{ github.run_id }}" "${{ steps.sync.outputs.critical_list }}")
-    bash .ci-lib-temp/scripts/notify.sh "$MSG" "${{ secrets.TELEGRAM_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}" "${{ secrets.TELEGRAM_TOPIC_ID }}" "${{ inputs.force_notify }}"
+    bash .ci-lib-temp/scripts/tg-notify.sh "$MSG" "${{ secrets.TELEGRAM_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}" "${{ secrets.TELEGRAM_TOPIC_ID }}" "${{ inputs.force_notify }}"
