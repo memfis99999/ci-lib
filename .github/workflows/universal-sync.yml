@@ -1,21 +1,143 @@
-- name: Sync Mirror
-  id: sync
-  run: |
-    OUTPUT=$(bash .ci-lib-temp/scripts/sync-mirror.sh)
-    echo "$OUTPUT" >> $GITHUB_OUTPUT
+name: Universal Sync (ci-lib)
 
-- name: Merge Target
-  id: merge
-  if: steps.sync.outputs.changed == 'true'
-  run: |
-    # Передаем флаг критических изменений третьим параметром
-    OUTPUT=$(bash .ci-lib-temp/scripts/merge-target.sh "" "" "${{ steps.sync.outputs.critical }}")
-    echo "$OUTPUT" >> $GITHUB_OUTPUT
+on:
+  workflow_call:
+    inputs:
+      force_notify:
+        description: "Force Telegram notification"
+        required: false
+        type: boolean
+        default: false
 
-- name: Format & Notify
-  if: always() && (steps.sync.outputs.changed == 'true' || failure())
-  run: |
-    STATUS="${{ job.status == 'success' && (steps.merge.outputs.merge_result || 'MIRROR_ONLY') || '❌ ERROR' }}"
-    # Передаем список файлов шестым параметром
-    MSG=$(bash .ci-lib-temp/scripts/gen-message.sh "${{ github.repository }}" "" "$STATUS" "${{ steps.sync.outputs.hash }}" "${{ github.run_id }}" "${{ steps.sync.outputs.critical_list }}")
-    bash .ci-lib-temp/scripts/tg-notify.sh "$MSG" "${{ secrets.TELEGRAM_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}" "${{ secrets.TELEGRAM_TOPIC_ID }}" "${{ inputs.force_notify }}"
+permissions:
+  contents: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      # 1) Checkout target repo (the repo that called this reusable workflow)
+      - name: Checkout target repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: true
+
+      # 2) Decide if auto-update is enabled (quiet exit if disabled)
+      - name: Check auto-update flag
+        id: auto
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          CFG="sync/auto-update.txt"
+          if [ ! -f "$CFG" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          VAL="$(tr -d '[:space:]' < "$CFG" || true)"
+          if [ -z "$VAL" ]; then
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          case "${VAL,,}" in
+            1|true|yes|y|on|enable|enabled)
+              echo "enabled=true" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "enabled=false" >> "$GITHUB_OUTPUT"
+              ;;
+          esac
+
+      - name: Stop early (auto-update disabled)
+        if: steps.auto.outputs.enabled != 'true'
+        shell: bash
+        run: |
+          # Silent success
+          exit 0
+
+      # 3) Fetch ci-lib scripts into workspace (no "uses:" on sub-actions!)
+      - name: Checkout ci-lib (scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: memfis99999/ci-lib
+          ref: master
+          path: .ci-lib-temp
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Ensure scripts are executable
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x .ci-lib-temp/scripts/*.sh || true
+
+      # 4) Sync mirror
+      - name: Sync Mirror
+        id: sync
+        shell: bash
+        run: |
+          set -euo pipefail
+          OUTPUT="$(bash .ci-lib-temp/scripts/sync-mirror.sh)"
+          # scripts must output key=value lines for GITHUB_OUTPUT
+          printf '%s\n' "$OUTPUT" >> "$GITHUB_OUTPUT"
+
+      # 5) Merge/Rebase target branch if mirror changed
+      - name: Merge Target
+        id: merge
+        if: steps.sync.outputs.changed == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Pass critical flag (3rd arg) as you did
+          OUTPUT="$(bash .ci-lib-temp/scripts/merge-target.sh "" "" "${{ steps.sync.outputs.critical }}")"
+          printf '%s\n' "$OUTPUT" >> "$GITHUB_OUTPUT"
+
+      # 6) Compose message (always on change or failure)
+      - name: Generate Telegram message
+        id: msg
+        if: always() && (steps.sync.outputs.changed == 'true' || failure())
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [ "${{ job.status }}" = "success" ]; then
+            STATUS="${{ steps.merge.outputs.merge_result || 'MIRROR_ONLY' }}"
+          else
+            STATUS="❌ ERROR"
+          fi
+
+          MSG="$(bash .ci-lib-temp/scripts/gen-message.sh \
+            "${{ github.repository }}" \
+            "" \
+            "$STATUS" \
+            "${{ steps.sync.outputs.hash }}" \
+            "${{ github.run_id }}" \
+            "${{ steps.sync.outputs.critical_list }}")"
+
+          # Multi-line output safe format
+          {
+            echo "text<<'EOF'"
+            echo "$MSG"
+            echo "EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      # 7) Notify Telegram (script decides enabled/disabled by sync/telegram-enabled.txt)
+      - name: Telegram notify
+        if: always() && (steps.sync.outputs.changed == 'true' || failure())
+        shell: bash
+        env:
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          TELEGRAM_TOPIC_ID: ${{ secrets.TELEGRAM_TOPIC_ID }}
+        run: |
+          set -euo pipefail
+          bash .ci-lib-temp/scripts/tg-notify.sh \
+            "${{ steps.msg.outputs.text }}" \
+            "${TELEGRAM_TOKEN:-}" \
+            "${TELEGRAM_CHAT_ID:-}" \
+            "${TELEGRAM_TOPIC_ID:-}" \
+            "${{ inputs.force_notify }}"
