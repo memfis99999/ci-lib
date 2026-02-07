@@ -1,10 +1,13 @@
 #!/bin/bash
+MIR_BR=$1; TGT_BR=$2; IS_CRITICAL=$3
 CONF_DIR=".github/sync"
-MIR_BR=${1:-$(cat $CONF_DIR/mirror-branch.txt 2>/dev/null || echo "upstream-mirror")}
-TGT_BR=${2:-$(cat $CONF_DIR/target-branch.txt 2>/dev/null || echo "master")}
 
 CAN_MERGE=false
-# Ищем флаг в новой папке sync/
+if [ "$IS_CRITICAL" == "true" ]; then
+    echo "merge_result=BLOCKED_CRITICAL"
+    exit 0
+fi
+
 FILE="$CONF_DIR/auto-update.txt"
 if [ -f "$FILE" ]; then
     VAL=$(grep -v '^#' "$FILE" | xargs | tr '[:upper:]' '[:lower:]')

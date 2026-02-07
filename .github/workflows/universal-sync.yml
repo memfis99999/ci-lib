@@ -1,48 +1,21 @@
-name: Universal Git Sync (Config-Driven)
+- name: Sync Mirror
+  id: sync
+  run: |
+    OUTPUT=$(bash .ci-lib-temp/scripts/sync-mirror.sh)
+    echo "$OUTPUT" >> $GITHUB_OUTPUT
 
-on:
-  workflow_call:
-    inputs:
-      force_notify: { required: false, type: boolean, default: false }
-    secrets:
-      TELEGRAM_TOKEN: { required: true }
-      TELEGRAM_CHAT_ID: { required: true }
-      TELEGRAM_TOPIC_ID: { required: false }
-      
-jobs:
-  maintenance:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout Target Repo
-        uses: actions/checkout@v4
-        with: { fetch-depth: 0 }
+- name: Merge Target
+  id: merge
+  if: steps.sync.outputs.changed == 'true'
+  run: |
+    # Передаем флаг критических изменений третьим параметром
+    OUTPUT=$(bash .ci-lib-temp/scripts/merge-target.sh "" "" "${{ steps.sync.outputs.critical }}")
+    echo "$OUTPUT" >> $GITHUB_OUTPUT
 
-      - name: Checkout CI Library
-        uses: actions/checkout@v4
-        with: { repository: memfis99999/ci-lib, path: .ci-lib-temp }
-
-      - name: Git Config
-        run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-
-      - name: Sync Mirror
-        id: sync
-        run: |
-          OUTPUT=$(bash .ci-lib-temp/scripts/sync-mirror.sh)
-          echo "$OUTPUT" >> $GITHUB_OUTPUT
-
-      - name: Merge Target
-        id: merge
-        if: steps.sync.outputs.changed == 'true'
-        run: |
-          OUTPUT=$(bash .ci-lib-temp/scripts/merge-target.sh)
-          echo "$OUTPUT" >> $GITHUB_OUTPUT
-
-      - name: Format & Notify
-        if: always() && (steps.sync.outputs.changed == 'true' || failure())
-        run: |
-          STATUS="${{ job.status == 'success' && (steps.merge.outputs.merge_result || 'MIRROR_ONLY') || '❌ ERROR' }}"
-          MSG=$(bash .ci-lib-temp/scripts/gen-message.sh "${{ github.repository }}" "" "$STATUS" "${{ steps.sync.outputs.hash }}" "${{ github.run_id }}")
-          bash .ci-lib-temp/scripts/notify.sh "$MSG" "${{ secrets.TELEGRAM_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}" "${{ secrets.TELEGRAM_TOPIC_ID }}" "${{ inputs.force_notify }}"
-          
+- name: Format & Notify
+  if: always() && (steps.sync.outputs.changed == 'true' || failure())
+  run: |
+    STATUS="${{ job.status == 'success' && (steps.merge.outputs.merge_result || 'MIRROR_ONLY') || '❌ ERROR' }}"
+    # Передаем список файлов шестым параметром
+    MSG=$(bash .ci-lib-temp/scripts/gen-message.sh "${{ github.repository }}" "" "$STATUS" "${{ steps.sync.outputs.hash }}" "${{ github.run_id }}" "${{ steps.sync.outputs.critical_list }}")
+    bash .ci-lib-temp/scripts/notify.sh "$MSG" "${{ secrets.TELEGRAM_TOKEN }}" "${{ secrets.TELEGRAM_CHAT_ID }}" "${{ secrets.TELEGRAM_TOPIC_ID }}" "${{ inputs.force_notify }}"
