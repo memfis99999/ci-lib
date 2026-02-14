@@ -94,8 +94,9 @@ jobs:
         run: |
           set -euo pipefail
           # Pass critical flag (3rd arg) as you did
-          OUTPUT="$(bash .ci-lib-temp/scripts/merge-target.sh "" "" "${{ steps.sync.outputs.critical }}")"
-          printf '%s\n' "$OUTPUT" >> "$GITHUB_OUTPUT"
+          bash .ci-lib-temp/scripts/merge-target.sh "" "" "${{ steps.sync.outputs.critical }}" \
+          | sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/\1=\2/p' \
+          >> "$GITHUB_OUTPUT"
 
       # 6) Compose message (always on change or failure)
       - name: Generate Telegram message
@@ -120,11 +121,15 @@ jobs:
             "${{ steps.sync.outputs.critical_list }}")"
 
           # Multi-line output safe format
+          DELIM="EOF_$(date +%s%N)_$RANDOM"
+          MSG_CLEAN="$(printf '%s' "$MSG" | tr -d '\r')"
+
           {
-            echo "text<<'EOF'"
-            echo "$MSG"
-            echo "EOF"
+            echo "text<<$DELIM"
+            printf '%s\n' "$MSG_CLEAN"
+            echo "$DELIM"
           } >> "$GITHUB_OUTPUT"
+
 
       # 7) Notify Telegram (script decides enabled/disabled by sync/telegram-enabled.txt)
       - name: Telegram notify
