@@ -81,9 +81,10 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          OUTPUT="$(bash .ci-lib-temp/scripts/sync-mirror.sh)"
-          # scripts must output key=value lines for GITHUB_OUTPUT
-          printf '%s\n' "$OUTPUT" >> "$GITHUB_OUTPUT"
+          bash .ci-lib-temp/scripts/sync-mirror.sh \
+          | sed -nE 's/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/\1=\2/p' \
+          >> "$GITHUB_OUTPUT"
+
 
       # 5) Merge/Rebase target branch if mirror changed
       - name: Merge Target
